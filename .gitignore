@@ -1,0 +1,39 @@
+# 环境
+.env
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# 日志
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.sw?
+
+# 系统
+.DS_Store
+
+# 测试
+coverage/
+__screenshots__/
+
+# 缓存
+*.local
+.eslintcache
+*.timestamp-*-*.mjs
+
+# 项目
+/docs/
+/CLAUDE.md
+/neo4j-ce.zip
+/neo4j-desktop.exe
+/backend/.env
