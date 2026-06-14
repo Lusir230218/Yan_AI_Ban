@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from datetime import date
 
 from core.security import get_current_user
 from core.database import get_db
@@ -70,8 +71,8 @@ async def generate_plans(
             user_id=current_user.id,
             phase=phase.get("phase", "未知阶段"),
             focus=phase.get("focus"),
-            start_date=phase.get("start_date"),
-            end_date=phase.get("end_date"),
+            start_date=date.fromisoformat(phase["start_date"]) if phase.get("start_date") else None,
+            end_date=date.fromisoformat(phase["end_date"]) if phase.get("end_date") else None,
             daily_tasks=phase.get("daily_tasks"),
             status=phase.get("status", "active"),
         )

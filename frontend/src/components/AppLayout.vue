@@ -9,6 +9,7 @@ const auth = useAuthStore()
 
 const navItems = [
   { name: 'dashboard', label: '工作台', icon: '📊' },
+  { name: 'practice', label: '题库练习', icon: '📚' },
   { name: 'plans', label: '学习计划', icon: '📋' },
   { name: 'records', label: '学习记录', icon: '📝' },
   { name: 'diagnosis', label: '考研画像', icon: '👤' },

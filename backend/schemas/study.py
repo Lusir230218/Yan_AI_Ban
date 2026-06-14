@@ -45,3 +45,41 @@ class StudyRecordResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class QuestionCreate(BaseModel):
+    question_type: str
+    subject: str
+    knowledge_point_id: int | None = None
+    stem: str
+    options: str
+    correct_answer: str
+    explanation: str | None = None
+    difficulty: int = 1
+
+
+class QuestionResponse(BaseModel):
+    id: int
+    question_type: str
+    subject: str
+    knowledge_point_id: int | None = None
+    stem: str
+    options: str
+    explanation: str | None = None
+    difficulty: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AnswerSubmit(BaseModel):
+    answer: str
+    duration_seconds: int = 0
+    subject: str
+
+
+class AnswerResult(BaseModel):
+    is_correct: bool
+    correct_answer: str
+    explanation: str | None = None
+    record: StudyRecordResponse

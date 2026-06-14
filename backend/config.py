@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     LLM_API_KEY: str = ""
     LLM_BASE_URL: str = "https://api.openai-proxy.org/v1"
-    LLM_MODEL: str = "gpt-4o"
+    LLM_MODEL: str = "qwen3.5-flash"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

@@ -74,3 +74,39 @@ export interface StudyRecordResponse {
   emotion_score: number | null
   created_at: string
 }
+
+export interface QuestionResponse {
+  id: number
+  question_type: 'single_choice' | 'multi_choice' | 'true_false'
+  subject: string
+  knowledge_point_id: number | null
+  stem: string
+  options: string
+  explanation: string | null
+  difficulty: number
+  created_at: string
+}
+
+export interface AnswerSubmit {
+  answer: string
+  duration_seconds: number
+  subject: string
+}
+
+export interface AnswerResult {
+  is_correct: boolean
+  correct_answer: string
+  explanation: string | null
+  record: StudyRecordResponse
+}
+
+export interface QuestionCreate {
+  question_type: string
+  subject: string
+  knowledge_point_id?: number | null
+  stem: string
+  options: string
+  correct_answer: string
+  explanation?: string | null
+  difficulty?: number
+}
