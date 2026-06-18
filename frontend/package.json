@@ -11,9 +11,13 @@
     "type-check": "vue-tsc --build"
   },
   "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "@kjgl77/datav-vue3": "^1.7.4",
     "axios": "^1.17.0",
+    "element-plus": "^2.14.2",
     "katex": "^0.17.0",
     "pinia": "^3.0.4",
+    "three": "^0.184.0",
     "vue": "^3.5.32",
     "vue-router": "^4.6.4"
   },
@@ -21,6 +25,7 @@
     "@tsconfig/node24": "^24.0.4",
     "@types/katex": "^0.16.8",
     "@types/node": "^24.12.2",
+    "@types/three": "^0.184.1",
     "@vitejs/plugin-vue": "^6.0.6",
     "@vue/tsconfig": "^0.9.1",
     "npm-run-all2": "^8.0.4",

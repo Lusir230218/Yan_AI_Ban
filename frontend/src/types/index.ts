@@ -75,15 +75,50 @@ export interface StudyRecordResponse {
   created_at: string
 }
 
+export interface KnowledgePointResponse {
+  id: number
+  code: string
+  name: string
+  subject: string
+  parent_id: number | null
+  level: number
+  sort_order: number
+  exam_frequency: number
+  difficulty: number
+}
+
+export interface KnowledgePointTree {
+  id: number | null
+  code: string | null
+  name: string
+  level: number
+  children: KnowledgePointTree[]
+}
+
+export interface QuestionGroupResponse {
+  id: number
+  subject: string
+  title: string | null
+  content: string
+  images: string | null
+  created_at: string
+}
+
 export interface QuestionResponse {
   id: number
-  question_type: 'single_choice' | 'multi_choice' | 'true_false'
+  question_type: string
   subject: string
+  exam_variant: string | null
   knowledge_point_id: number | null
+  group_id: number | null
+  group_order: number | null
   stem: string
   options: string
   explanation: string | null
   difficulty: number
+  images: string | null
+  knowledge_point: KnowledgePointResponse | null
+  group: QuestionGroupResponse | null
   created_at: string
 }
 
@@ -103,10 +138,14 @@ export interface AnswerResult {
 export interface QuestionCreate {
   question_type: string
   subject: string
+  exam_variant?: string | null
   knowledge_point_id?: number | null
+  group_id?: number | null
+  group_order?: number | null
   stem: string
   options: string
   correct_answer: string
   explanation?: string | null
   difficulty?: number
+  images?: string | null
 }
