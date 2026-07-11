@@ -135,6 +135,34 @@ export interface AnswerResult {
   record: StudyRecordResponse
 }
 
+export interface AiSolveRecord {
+  id: number
+  is_correct: boolean | null
+  subject: string | null
+  knowledge_point_id: number | null
+}
+
+export interface AiSolveResponse {
+  question: {
+    id: number
+    stem: string
+    options: string
+    question_type: string
+    subject: string
+    exam_variant: string | null
+    difficulty: number
+    knowledge_point_id: number | null
+    image_url: string | null
+  } | null
+  explanation: string | null
+  user_answer: string | null
+  correct_answer: string | null
+  is_correct: boolean | null
+  errors: string[] | null
+  record: AiSolveRecord | null
+  error: string | null
+}
+
 export interface QuestionCreate {
   question_type: string
   subject: string

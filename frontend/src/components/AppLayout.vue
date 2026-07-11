@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import logoSvg from '@/assets/logo.svg'
 import {
-  Monitor, Notebook, Document, Clock, User, SwitchButton
+  Monitor, Notebook, Document, Clock, User, SwitchButton, Lightning
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -17,6 +17,7 @@ const navItems = [
   { name: 'plans', label: '学习计划', icon: Document },
   { name: 'records', label: '学习记录', icon: Clock },
   { name: 'diagnosis', label: '考研画像', icon: User },
+  { name: 'ai-solve', label: 'AI 解答', icon: Lightning },
 ]
 
 const pageTitle = computed(() => {

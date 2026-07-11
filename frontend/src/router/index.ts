@@ -54,6 +54,12 @@ const router = createRouter({
       component: () => import('@/views/PracticeView.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/ai-solve',
+      name: 'ai-solve',
+      component: () => import('@/views/AiSolveView.vue'),
+      meta: { requiresAuth: true },
+    },
   ],
 })
 

@@ -79,13 +79,15 @@ function initScene() {
 function updateLines() {
   const lineVerts: number[] = []; const lineColors: number[] = []
   const maxDist = props.connectDistance
-  for (let i = 0; i < particlePositions.length; i++) {
-    for (let j = i + 1; j < particlePositions.length; j++) {
-      if (particlePositions[i].distanceTo(particlePositions[j]) < maxDist) {
-        lineVerts.push(
-          particlePositions[i].x, particlePositions[i].y, particlePositions[i].z,
-          particlePositions[j].x, particlePositions[j].y, particlePositions[j].z,
-        )
+  const positions = particlePositions
+  for (let i = 0; i < positions.length; i++) {
+    const pi = positions[i]
+    if (!pi) continue
+    for (let j = i + 1; j < positions.length; j++) {
+      const pj = positions[j]
+      if (!pj) continue
+      if (pi.distanceTo(pj) < maxDist) {
+        lineVerts.push(pi.x, pi.y, pi.z, pj.x, pj.y, pj.z)
         for (let k = 0; k < 2; k++) lineColors.push(0.5, 0.5, 0.8)
       }
     }
