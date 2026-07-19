@@ -3,7 +3,9 @@ import { onMounted, computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { studyApi } from '@/api/study'
-import type { StudyPlanResponse, StudyRecordResponse } from '@/types'
+import { encouragerApi } from '@/api/encourager'
+import { evaluationApi } from '@/api/evaluation'
+import type { StudyPlanResponse, StudyRecordResponse, EncouragerMessage, EvaluationPrediction } from '@/types'
 import AppLayout from '@/components/AppLayout.vue'
 import { TrendCharts, DataAnalysis, Calendar, Trophy } from '@element-plus/icons-vue'
 import ThreeBackground from '@/components/ThreeBackground.vue'
@@ -18,10 +20,15 @@ const loading = ref(true)
 onMounted(async () => {
   if (!auth.user) await auth.fetchUser()
   try {
-    const [plansRes, recordsRes] = await Promise.all([
-      studyApi.listPlans(), studyApi.listRecords(),
+    const [plansRes, recordsRes, msg, evalData] = await Promise.all([
+      studyApi.listPlans(),
+      studyApi.listRecords(),
+      encouragerApi.getMessage().catch(() => null),
+      evaluationApi.predict().catch(() => null),
     ])
     plans.value = plansRes.data; records.value = recordsRes.data
+    encourageMsg.value = msg
+    evaluation.value = evalData
   } catch { /* skip */ }
   finally { loading.value = false }
 })
@@ -32,6 +39,9 @@ function greet() {
   if (h < 12) return '上午好'; if (h < 14) return '中午好'
   if (h < 18) return '下午好'; return '晚上好'
 }
+
+const encourageMsg = ref<EncouragerMessage | null>(null)
+const evaluation = ref<EvaluationPrediction | null>(null)
 
 const correctCount = computed(() => records.value.filter(r => r.is_correct).length)
 const accuracy = computed(() =>
@@ -80,6 +90,28 @@ const recentRecords = computed(() => records.value.slice(0, 6))
           </div>
         </div>
 
+        <!-- 鼓励卡片 -->
+        <div v-if="encourageMsg" class="encourage-card">
+          <el-card shadow="hover">
+            <div class="encourage-inner">
+              <span class="encourage-icon">
+                {{ encourageMsg.message_type === 'milestone' ? '🎉' : encourageMsg.message_type === 'comfort' ? '💪' : '🔥' }}
+              </span>
+              <div class="encourage-body">
+                <p class="encourage-text">{{ encourageMsg.message }}</p>
+                <div class="encourage-meta">
+                  <span v-if="encourageMsg.streak_days > 0">
+                    连续学习 <strong>{{ encourageMsg.streak_days }}</strong> 天
+                  </span>
+                  <span v-if="encourageMsg.today_count > 0">
+                    今日完成 <strong>{{ encourageMsg.today_count }}</strong> 题
+                  </span>
+                </div>
+              </div>
+            </div>
+          </el-card>
+        </div>
+
         <div class="stats-row">
           <el-card v-for="s in [
             { label: '学习计划', val: plans.length, icon: Calendar, color: '#4f46e5', bg: '#eef2ff' },
@@ -95,6 +127,43 @@ const recentRecords = computed(() => records.value.slice(0, 6))
                 <span class="stat-val" :style="{ color: s.color }">{{ s.val }}</span>
                 <span class="stat-label">{{ s.label }}</span>
               </div>
+            </div>
+          </el-card>
+        </div>
+
+        <!-- 评估摘要 -->
+        <div v-if="evaluation?.predicted_scores?.total" class="eval-card">
+          <el-card shadow="hover">
+            <template #header>
+              <div class="card-hd">
+                <span>📊 分数预测</span>
+              </div>
+            </template>
+            <div class="eval-scores">
+              <div class="eval-total">
+                <span class="eval-total-num">{{ evaluation.predicted_scores.total }}</span>
+                <span class="eval-total-label">预测总分</span>
+              </div>
+              <div class="eval-subjects">
+                <span v-if="evaluation.predicted_scores.math">
+                  数学 <strong>{{ evaluation.predicted_scores.math }}</strong>
+                </span>
+                <span v-if="evaluation.predicted_scores.english">
+                  英语 <strong>{{ evaluation.predicted_scores.english }}</strong>
+                </span>
+                <span v-if="evaluation.predicted_scores.politics">
+                  政治 <strong>{{ evaluation.predicted_scores.politics }}</strong>
+                </span>
+              </div>
+            </div>
+            <div v-if="evaluation.weak_points?.length" class="eval-weak">
+              <span class="eval-weak-label">薄弱环节：</span>
+              <el-tag
+                v-for="wp in evaluation.weak_points.slice(0, 3)" :key="wp.name"
+                size="small" :type="wp.priority === 1 ? 'danger' : 'warning'"
+              >
+                {{ wp.name }} ({{ wp.mastery_pct }}%)
+              </el-tag>
             </div>
           </el-card>
         </div>
@@ -188,4 +257,21 @@ const recentRecords = computed(() => records.value.slice(0, 6))
 .row-item:last-child { border-bottom: none; }
 .row-time { margin-left: auto; color: #9ca3af; font-size: 13px; }
 .plan-phase { font-weight: 500; }
+
+.encourage-card { margin-bottom: 0; }
+.encourage-inner { display: flex; align-items: flex-start; gap: 14px; }
+.encourage-icon { font-size: 28px; flex-shrink: 0; }
+.encourage-body { flex: 1; }
+.encourage-text { font-size: 14px; line-height: 1.7; color: #374151; margin: 0 0 6px; }
+.encourage-meta { display: flex; gap: 16px; font-size: 12px; color: #9ca3af; }
+
+.eval-card { margin-bottom: 0; }
+.eval-scores { display: flex; align-items: center; gap: 20px; margin-bottom: 12px; }
+.eval-total { text-align: center; }
+.eval-total-num { font-size: 36px; font-weight: 800; color: #4f46e5; display: block; }
+.eval-total-label { font-size: 12px; color: #6b7280; }
+.eval-subjects { display: flex; gap: 14px; font-size: 13px; color: #6b7280; }
+.eval-subjects strong { color: #1f2937; }
+.eval-weak { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.eval-weak-label { font-size: 12px; color: #9ca3af; }
 </style>

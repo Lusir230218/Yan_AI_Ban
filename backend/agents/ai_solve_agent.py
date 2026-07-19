@@ -4,9 +4,13 @@
   image → [多模态模式 ? vision_extract : ocr_extract] → llm_structurize
   → route_decision → solve_agent / grade_agent → knowledge_matcher → save_result → format_response
 
+Tutor 多轮引导流程：
+  首轮: image/text → extract → structure → tutor_guide(hint=1) → save_tutor_session → format
+  续接: load_tutor_session → tutor_guide(next hint) → save_tutor_session → format
+  索答: load_tutor_session → solve_agent → knowledge_matcher → save_result → save_tutor_session(completed) → format
+
 用法：
-  from agents.ai_solve_agent import run_ai_solve
-  result = await run_ai_solve(inputs, db, user_id)
+  from agents.ai_solve_agent import run_ai_solve, run_tutor_start, run_tutor_continue, run_tutor_reveal
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ import json
 import logging
 import re
 import traceback
+from datetime import datetime, timezone
 from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
@@ -25,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from llm.gateway import llm_chat, llm_vision_chat
 from models.study import KnowledgePoint, Question, StudyRecord
+from models.tutor import TutorSession
 
 logger = logging.getLogger("ai_solve_agent")
 logger.setLevel(logging.DEBUG)
@@ -35,20 +41,20 @@ logger.setLevel(logging.DEBUG)
 
 class AiSolveState(TypedDict):
     # 输入
-    image_data: bytes | None       # 原始图片 bytes
-    raw_text: str | None           # 用户输入的文本
-    multi_modal: bool              # True → GPT-4o Vision, False → OCR
+    image_data: bytes | None
+    raw_text: str | None
+    multi_modal: bool
 
     # OCR 中间结果
-    ocr_text: str | None           # OCR 提取的原始文本
+    ocr_text: str | None
 
     # LLM 结构化后
     stem: str | None
-    options: str | None            # JSON 字符串
-    question_type: str | None      # choice / multi_choice / fill_blank / essay / true_false
+    options: str | None
+    question_type: str | None
     subject: str | None
     exam_variant: str | None
-    user_answer: str | None        # 从输入中提取的用户作答
+    user_answer: str | None
     difficulty: int | None
 
     # 知识点匹配
@@ -62,16 +68,67 @@ class AiSolveState(TypedDict):
 
     # 持久化
     image_url: str | None
-    created_by: int | None         # 当前用户 ID
+    created_by: int | None
     saved_question_id: int | None
     saved_record_id: int | None
 
     # 内部
     _db_session: AsyncSession | None
 
+    # Tutor 多轮引导
+    session_id: int | None
+    tutor_mode: str | None           # "start" / "continue" / "reveal" / None
+    conversation_round: int           # 当前轮次 (0-3)
+    hint_level: int                   # 提示层级 (1-4)
+    conversation_history: list[dict]  # 从 messages JSONB 恢复
+    should_reveal_answer: bool
+    tutor_message: str | None         # 当前轮的 AI 引导语
 
     # 错误
     error: str | None
+
+
+# ── Prompt 模板 ──
+
+TUTOR_PROMPTS = {
+    1: """你是一位考研辅导专家，正在用苏格拉底式教学法引导学生思考。请仔细阅读题目，一步步引导学生自己发现答案，不要直接给出答案。
+
+现在只做第1层引导——审题：
+请引导学生回答以下问题：
+1. 这道题在问什么？（用一句话概括）
+2. 题目中给出了哪些已知条件？
+3. 这道题可能涉及哪个知识点？
+
+语气要温和鼓励，先让学生自己想一想，然后告诉他你的理解。不要继续下一层引导，停在审题这一步。""",
+
+    2: """你是一位考研辅导专家，正在用苏格拉底式教学法引导学生思考。
+
+学生已经完成了审题（上一轮），现在做第2层引导——思路：
+学生已经知道这道题考察的是哪个知识点。现在请引导学生思考：
+1. 解决这类问题通常用什么方法/公式？
+2. 已知条件可以如何转化？
+
+根据学生上一轮的回复给予肯定或纠正，然后引导学生试着把第一步思路写出来，不用算出最终结果。不要继续下一层引导。""",
+
+    3: """你是一位考研辅导专家，正在用苏格拉底式教学法引导学生思考。
+
+学生已经理解了思路（前两轮），现在做第3层引导——计算：
+学生的大方向是对的。现在引导他：
+1. 把公式代入已知条件
+2. 指出可能的易错点，提醒注意
+3. 请学生写出计算过程
+
+语气要具体，指出他当前思路中哪个地方容易出错。不要继续下一层引导，不要给最终答案。""",
+
+    4: """你是一位考研辅导专家。学生已经尝试了多轮思考，现在给出完整解析。
+
+请提供：
+1. **正确答案**：清晰写出
+2. **详细步骤**：分步列出解题过程
+3. **思路反馈**：指出学生思考中值得肯定的地方和需要改进的地方
+
+语气要既专业又温暖，肯定学生的努力。""",
+}
 
 
 # ── 节点函数 ──
@@ -239,7 +296,11 @@ def _parse_structured_output(text: str) -> dict:
 
 
 def _route(state: AiSolveState) -> str:
-    return "grade_agent" if state.get("user_answer") else "solve_agent"
+    if state.get("tutor_mode") == "start":
+        return "tutor_guide"
+    if state.get("user_answer"):
+        return "grade_agent"
+    return "solve_agent"
 
 
 async def solve_agent(state: AiSolveState) -> dict:
@@ -256,7 +317,7 @@ async def solve_agent(state: AiSolveState) -> dict:
         "1. 正确答案是什么？\n"
         "2. 给出详细解析\n\n"
         "以 JSON 格式返回：\n"
-        '{{"correct_answer": "A", "explanation": "解析内容...", "difficulty": 3}}'
+        '{"correct_answer": "A", "explanation": "解析内容...", "difficulty": 3}'
     )
 
     resp = await llm_chat(
@@ -303,7 +364,7 @@ async def grade_agent(state: AiSolveState) -> dict:
         "3. 错因分析（如果答错）\n"
         "4. 给出详细解析\n\n"
         "以 JSON 格式返回：\n"
-        '{{"correct_answer": "B", "is_correct": false, "errors": ["知识点理解有误"], "explanation": "解析内容...", "difficulty": 3}}'
+        '{"correct_answer": "B", "is_correct": false, "errors": ["知识点理解有误"], "explanation": "解析内容...", "difficulty": 3}'
     )
 
     resp = await llm_chat(
@@ -335,6 +396,183 @@ async def grade_agent(state: AiSolveState) -> dict:
             "explanation": resp.text,
             "difficulty": state.get("difficulty", 3),
         }
+
+
+async def tutor_guide(state: AiSolveState) -> dict:
+    """苏格拉底式分步引导 — 根据 hint_level 生成对应引导语"""
+    hint_level = state.get("hint_level", 1)
+    prompt_template = TUTOR_PROMPTS.get(hint_level, TUTOR_PROMPTS[1])
+
+    stem = state.get("stem", "")
+    options = state.get("options", "[]")
+    question_type = state.get("question_type", "未知")
+    subject = state.get("subject", "未知")
+
+    history_text = ""
+    history = state.get("conversation_history", [])
+    if history:
+        history_text = "\n\n## 之前的对话历史\n"
+        for msg in history:
+            role_label = "AI引导" if msg["role"] == "assistant" else "学生回答"
+            history_text += f"[第{msg['round']+1}轮 {role_label}]: {msg['content']}\n"
+
+    prompt = (
+        f"## 题目信息\n"
+        f"题目：{stem}\n"
+        f"选项：{options}\n"
+        f"题型：{question_type}\n"
+        f"科目：{subject}\n"
+        f"{history_text}\n"
+        f"## 当前任务\n"
+        f"{prompt_template}\n\n"
+        f"只输出引导语，用温暖鼓励的语气，控制在200字以内。不要用JSON格式。"
+    )
+
+    resp = await llm_chat(
+        messages=[
+            {"role": "system", "content": "你是考研辅导专家，用苏格拉底式教学法引导学生。不要直接给答案，不要用JSON格式回复。"},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.7,
+        max_tokens=1024,
+    )
+
+    return {"tutor_message": resp.text.strip()}
+
+
+async def load_tutor_session(state: AiSolveState) -> dict:
+    """从 DB 加载 tutor_session，恢复题目快照和对话历史"""
+    db = state.get("_db_session")
+    session_id = state.get("session_id")
+    if not db or not session_id:
+        return {"error": "缺少数据库会话或 session_id"}
+
+    result = await db.execute(select(TutorSession).where(TutorSession.id == session_id))
+    session = result.scalar_one_or_none()
+    if not session:
+        return {"error": f"会话 {session_id} 不存在"}
+
+    snapshot = session.question_snapshot or {}
+    messages = session.messages or []
+
+    return {
+        "stem": snapshot.get("stem"),
+        "options": snapshot.get("options"),
+        "question_type": snapshot.get("question_type"),
+        "subject": snapshot.get("subject"),
+        "exam_variant": snapshot.get("exam_variant"),
+        "difficulty": snapshot.get("difficulty"),
+        "knowledge_point_id": snapshot.get("knowledge_point_id"),
+        "correct_answer": snapshot.get("correct_answer"),
+        "explanation": snapshot.get("explanation"),
+        "conversation_round": session.current_round + 1,  # 进入新轮次
+        "hint_level": session.hint_level,
+        "conversation_history": messages,
+        "created_by": session.user_id,
+    }
+
+
+async def save_tutor_session(state: AiSolveState) -> dict:
+    """创建或更新 tutor_session"""
+    db = state.get("_db_session")
+    if not db:
+        return {"error": "缺少数据库会话"}
+
+    session_id = state.get("session_id")
+    hint_level = state.get("hint_level", 1)
+    current_round = state.get("conversation_round", 0)
+    tutor_mode = state.get("tutor_mode", "")
+    should_reveal = state.get("should_reveal_answer", False)
+
+    is_completed = (hint_level >= 4 and current_round >= 3) or should_reveal
+    new_status = "completed" if is_completed else "active"
+
+    if session_id and (tutor_mode in ("continue", "reveal")):
+        result = await db.execute(select(TutorSession).where(TutorSession.id == session_id))
+        session = result.scalar_one_or_none()
+        if not session:
+            return {"error": f"会话 {session_id} 不存在"}
+
+        messages = list(session.messages or [])
+
+        user_input = state.get("raw_text")
+        if user_input and tutor_mode == "continue":
+            messages.append({
+                "role": "user",
+                "content": user_input,
+                "round": current_round - 1,
+                "hint_level": hint_level - 1,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+
+        ai_message = state.get("tutor_message")
+        if not ai_message and state.get("explanation"):
+            # solve/reveal 路径没有 tutor_message，用最终答案组装一条消息以便持久化
+            correct = state.get("correct_answer")
+            parts = []
+            if correct:
+                parts.append(f"【正确答案】{correct}")
+            parts.append(state["explanation"])
+            ai_message = "\n\n".join(parts)
+
+        if ai_message:
+            messages.append({
+                "role": "assistant",
+                "content": ai_message,
+                "round": current_round,
+                "hint_level": hint_level,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+
+        session.messages = messages
+        session.current_round = current_round
+        session.hint_level = hint_level + 1 if hint_level < 4 else 4
+        session.status = new_status
+
+        if state.get("saved_question_id"):
+            session.question_id = state["saved_question_id"]
+
+        await db.flush()
+        return {"session_id": session.id}
+
+    else:
+        now = datetime.now(timezone.utc).isoformat()
+        messages = []
+
+        ai_message = state.get("tutor_message")
+        if ai_message:
+            messages.append({
+                "role": "assistant",
+                "content": ai_message,
+                "round": 0,
+                "hint_level": 1,
+                "created_at": now,
+            })
+
+        snapshot = {
+            "stem": state.get("stem"),
+            "options": state.get("options"),
+            "question_type": state.get("question_type"),
+            "subject": state.get("subject"),
+            "exam_variant": state.get("exam_variant"),
+            "difficulty": state.get("difficulty"),
+            "knowledge_point_id": state.get("knowledge_point_id"),
+            "correct_answer": state.get("correct_answer"),
+            "explanation": state.get("explanation"),
+        }
+
+        session = TutorSession(
+            user_id=state.get("created_by"),
+            question_id=state.get("saved_question_id"),
+            current_round=0,
+            hint_level=2,
+            status="active",
+            messages=messages,
+            question_snapshot=snapshot,
+        )
+        db.add(session)
+        await db.flush()
+        return {"session_id": session.id}
 
 
 async def knowledge_matcher(state: AiSolveState) -> dict:
@@ -444,10 +682,11 @@ async def format_response(state: AiSolveState) -> dict:
     return {}
 
 
-# ── Workflow ──
+# ── 图构建 ──
 
 
 def build_ai_solve_graph() -> StateGraph:
+    """主图：支持单次解答/批改 + Tutor 首轮"""
     workflow = StateGraph(AiSolveState)
 
     workflow.add_node("vision_extract", vision_extract)
@@ -455,8 +694,10 @@ def build_ai_solve_graph() -> StateGraph:
     workflow.add_node("llm_structurize", llm_structurize)
     workflow.add_node("solve_agent", solve_agent)
     workflow.add_node("grade_agent", grade_agent)
+    workflow.add_node("tutor_guide", tutor_guide)
     workflow.add_node("knowledge_matcher", knowledge_matcher)
     workflow.add_node("save_result", save_result)
+    workflow.add_node("save_tutor_session", save_tutor_session)
     workflow.add_node("format_response", format_response)
 
     workflow.set_conditional_entry_point(
@@ -474,13 +715,60 @@ def build_ai_solve_graph() -> StateGraph:
     workflow.add_conditional_edges(
         "llm_structurize",
         _route,
-        {"solve_agent": "solve_agent", "grade_agent": "grade_agent"},
+        {
+            "solve_agent": "solve_agent",
+            "grade_agent": "grade_agent",
+            "tutor_guide": "tutor_guide",
+        },
     )
 
+    # 非 tutor 路径
     workflow.add_edge("solve_agent", "knowledge_matcher")
     workflow.add_edge("grade_agent", "knowledge_matcher")
     workflow.add_edge("knowledge_matcher", "save_result")
     workflow.add_edge("save_result", "format_response")
+
+    # tutor 首轮路径
+    workflow.add_edge("tutor_guide", "save_tutor_session")
+    workflow.add_edge("save_tutor_session", "format_response")
+
+    workflow.add_edge("format_response", END)
+
+    return workflow
+
+
+def build_tutor_continue_graph() -> StateGraph:
+    """Tutor 续接图：从 session 恢复后继续引导"""
+    workflow = StateGraph(AiSolveState)
+
+    workflow.add_node("load_tutor_session", load_tutor_session)
+    workflow.add_node("tutor_guide", tutor_guide)
+    workflow.add_node("solve_agent", solve_agent)
+    workflow.add_node("knowledge_matcher", knowledge_matcher)
+    workflow.add_node("save_result", save_result)
+    workflow.add_node("save_tutor_session", save_tutor_session)
+    workflow.add_node("format_response", format_response)
+
+    workflow.set_entry_point("load_tutor_session")
+
+    workflow.add_conditional_edges(
+        "load_tutor_session",
+        _tutor_continue_route,
+        {
+            "tutor_guide": "tutor_guide",
+            "solve_agent": "solve_agent",
+        },
+    )
+
+    # 继续引导路径
+    workflow.add_edge("tutor_guide", "save_tutor_session")
+    workflow.add_edge("save_tutor_session", "format_response")
+
+    # 索要答案路径
+    workflow.add_edge("solve_agent", "knowledge_matcher")
+    workflow.add_edge("knowledge_matcher", "save_result")
+    workflow.add_edge("save_result", "save_tutor_session")
+
     workflow.add_edge("format_response", END)
 
     return workflow
@@ -494,7 +782,14 @@ def _entry_route(state: AiSolveState) -> str:
     return "ocr_extract"
 
 
+def _tutor_continue_route(state: AiSolveState) -> str:
+    if state.get("should_reveal_answer") or state.get("conversation_round", 0) >= 3:
+        return "solve_agent"
+    return "tutor_guide"
+
+
 ai_solve_app = build_ai_solve_graph().compile()
+tutor_continue_app = build_tutor_continue_graph().compile()
 
 
 # ── 公共入口 ──
@@ -519,12 +814,30 @@ class AiSolveOutput(TypedDict):
     error: str | None
 
 
+class TutorStartOutput(TypedDict):
+    session_id: int
+    message: str
+    current_round: int
+    hint_level: int
+    status: str
+    error: str | None
+
+
+class TutorContinueOutput(TypedDict):
+    session_id: int
+    message: str
+    current_round: int
+    hint_level: int
+    status: str
+    error: str | None
+
+
 async def run_ai_solve(
     inputs: AiSolveInput,
     db: AsyncSession,
     user_id: int,
 ) -> AiSolveOutput:
-    """外部统一入口"""
+    """外部统一入口 — 单次解答/批改"""
     logger.info(f"run_ai_solve start — user_id={user_id}, has_image={inputs.get('image_data') is not None}, raw_text_len={len(inputs.get('raw_text') or '')}, multi_modal={inputs.get('multi_modal')}")
 
     initial: AiSolveState = {
@@ -549,6 +862,13 @@ async def run_ai_solve(
         "saved_question_id": None,
         "saved_record_id": None,
         "_db_session": db,
+        "session_id": None,
+        "tutor_mode": None,
+        "conversation_round": 0,
+        "hint_level": 1,
+        "conversation_history": [],
+        "should_reveal_answer": False,
+        "tutor_message": None,
         "error": None,
     }
 
@@ -593,5 +913,192 @@ async def run_ai_solve(
         is_correct=result.get("is_correct"),
         errors=result.get("errors"),
         record=record_data,
+        error=None,
+    )
+
+
+async def run_tutor_start(
+    inputs: AiSolveInput,
+    db: AsyncSession,
+    user_id: int,
+) -> TutorStartOutput:
+    """Tutor 首轮：提取题目 → 创建 session → 返回第1层引导语"""
+    logger.info(f"run_tutor_start — user_id={user_id}")
+
+    initial: AiSolveState = {
+        "image_data": inputs.get("image_data"),
+        "raw_text": inputs.get("raw_text"),
+        "multi_modal": inputs.get("multi_modal", False),
+        "ocr_text": None,
+        "stem": None,
+        "options": None,
+        "question_type": None,
+        "subject": inputs.get("subject"),
+        "exam_variant": inputs.get("exam_variant"),
+        "user_answer": None,
+        "difficulty": None,
+        "knowledge_point_id": None,
+        "correct_answer": None,
+        "explanation": None,
+        "is_correct": None,
+        "errors": None,
+        "image_url": None,
+        "created_by": user_id,
+        "saved_question_id": None,
+        "saved_record_id": None,
+        "_db_session": db,
+        "session_id": None,
+        "tutor_mode": "start",
+        "conversation_round": 0,
+        "hint_level": 1,
+        "conversation_history": [],
+        "should_reveal_answer": False,
+        "tutor_message": None,
+        "error": None,
+    }
+
+    try:
+        result = await ai_solve_app.ainvoke(initial)
+    except Exception as e:
+        logger.error(f"tutor_start failed: {e}\n{traceback.format_exc()}")
+        return TutorStartOutput(session_id=0, message="", current_round=0, hint_level=1, status="error", error=str(e))
+
+    if result.get("error"):
+        return TutorStartOutput(session_id=0, message="", current_round=0, hint_level=1, status="error", error=result["error"])
+
+    await db.commit()
+
+    return TutorStartOutput(
+        session_id=result.get("session_id", 0),
+        message=result.get("tutor_message", ""),
+        current_round=0,
+        hint_level=1,
+        status="active",
+        error=None,
+    )
+
+
+async def run_tutor_continue(
+    session_id: int,
+    user_input: str,
+    db: AsyncSession,
+    user_id: int,
+) -> TutorContinueOutput:
+    """Tutor 续接：读取 session → 推进到下一轮引导"""
+    logger.info(f"run_tutor_continue — session_id={session_id}")
+
+    initial: AiSolveState = {
+        "image_data": None,
+        "raw_text": user_input,
+        "multi_modal": False,
+        "ocr_text": None,
+        "stem": None,
+        "options": None,
+        "question_type": None,
+        "subject": None,
+        "exam_variant": None,
+        "user_answer": None,
+        "difficulty": None,
+        "knowledge_point_id": None,
+        "correct_answer": None,
+        "explanation": None,
+        "is_correct": None,
+        "errors": None,
+        "image_url": None,
+        "created_by": user_id,
+        "saved_question_id": None,
+        "saved_record_id": None,
+        "_db_session": db,
+        "session_id": session_id,
+        "tutor_mode": "continue",
+        "conversation_round": 0,
+        "hint_level": 1,
+        "conversation_history": [],
+        "should_reveal_answer": False,
+        "tutor_message": None,
+        "error": None,
+    }
+
+    try:
+        result = await tutor_continue_app.ainvoke(initial)
+    except Exception as e:
+        logger.error(f"tutor_continue failed: {e}\n{traceback.format_exc()}")
+        return TutorContinueOutput(session_id=session_id, message="", current_round=0, hint_level=1, status="error", error=str(e))
+
+    if result.get("error"):
+        return TutorContinueOutput(session_id=session_id, message="", current_round=0, hint_level=1, status="error", error=result["error"])
+
+    await db.commit()
+
+    next_hint = result.get("hint_level", 1)
+    status = "completed" if result.get("conversation_round", 0) >= 3 else "active"
+
+    return TutorContinueOutput(
+        session_id=session_id,
+        message=result.get("tutor_message", ""),
+        current_round=result.get("conversation_round", 0),
+        hint_level=next_hint,
+        status=status,
+        error=None,
+    )
+
+
+async def run_tutor_reveal(
+    session_id: int,
+    db: AsyncSession,
+    user_id: int,
+) -> TutorContinueOutput:
+    """Tutor 索要答案：加载 session → 直接给完整解析"""
+    logger.info(f"run_tutor_reveal — session_id={session_id}")
+
+    initial: AiSolveState = {
+        "image_data": None,
+        "raw_text": None,
+        "multi_modal": False,
+        "ocr_text": None,
+        "stem": None,
+        "options": None,
+        "question_type": None,
+        "subject": None,
+        "exam_variant": None,
+        "user_answer": None,
+        "difficulty": None,
+        "knowledge_point_id": None,
+        "correct_answer": None,
+        "explanation": None,
+        "is_correct": None,
+        "errors": None,
+        "image_url": None,
+        "created_by": user_id,
+        "saved_question_id": None,
+        "saved_record_id": None,
+        "_db_session": db,
+        "session_id": session_id,
+        "tutor_mode": "reveal",
+        "conversation_round": 3,
+        "hint_level": 4,
+        "conversation_history": [],
+        "should_reveal_answer": True,
+        "tutor_message": None,
+        "error": None,
+    }
+
+    try:
+        result = await tutor_continue_app.ainvoke(initial)
+    except Exception as e:
+        logger.error(f"tutor_reveal failed: {e}\n{traceback.format_exc()}")
+        return TutorContinueOutput(session_id=session_id, message="", current_round=0, hint_level=1, status="error", error=str(e))
+
+    if result.get("error"):
+        return TutorContinueOutput(session_id=session_id, message="", current_round=0, hint_level=1, status="error", error=result["error"])
+
+    await db.commit()
+
+    return TutorContinueOutput(
+        session_id=session_id,
+        message=result.get("explanation") or result.get("tutor_message", ""),
+        current_round=result.get("conversation_round", 3),
+        hint_level=4,
+        status="completed",
         error=None,
     )

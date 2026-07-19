@@ -163,6 +163,85 @@ export interface AiSolveResponse {
   error: string | null
 }
 
+// ── Tutor ──
+
+export interface TutorMessage {
+  role: string
+  content: string
+  round: number
+  hint_level: number
+  created_at?: string
+}
+
+export interface TutorStartResponse {
+  session_id: number
+  message: string
+  current_round: number
+  hint_level: number
+  status: string
+  error?: string | null
+}
+
+export interface TutorContinueResponse {
+  session_id: number
+  message: string
+  current_round: number
+  hint_level: number
+  status: string
+  error?: string | null
+}
+
+export interface TutorSessionResponse {
+  id: number
+  user_id: number
+  question_id: number | null
+  current_round: number
+  hint_level: number
+  status: string
+  messages: TutorMessage[]
+  question_snapshot?: Record<string, any> | null
+  created_at: string
+}
+
+export interface TutorSessionListItem {
+  id: number
+  question_id: number | null
+  current_round: number
+  hint_level: number
+  status: string
+  title: string
+  message_count: number
+  created_at: string
+  updated_at: string
+}
+
+// ── Evaluation ──
+
+export interface EvaluationPrediction {
+  predicted_scores: {
+    math?: number
+    english?: number
+    politics?: number
+    total?: number
+  }
+  weak_points: Array<{
+    name: string
+    mastery_pct: number
+    priority: number
+  }>
+  suggestions: string[]
+  report_id: number | null
+}
+
+// ── Encourager ──
+
+export interface EncouragerMessage {
+  message: string
+  message_type: 'daily' | 'milestone' | 'comfort' | 'reminder'
+  streak_days: number
+  today_count: number
+}
+
 export interface QuestionCreate {
   question_type: string
   subject: string

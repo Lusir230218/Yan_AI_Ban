@@ -60,6 +60,12 @@ const router = createRouter({
       component: () => import('@/views/AiSolveView.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/tutoring',
+      name: 'tutoring',
+      component: () => import('@/views/TutoringView.vue'),
+      meta: { requiresAuth: true },
+    },
   ],
 })
 
