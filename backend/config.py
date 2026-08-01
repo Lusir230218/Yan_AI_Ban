@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "qwen3.5-flash"
     LLM_VISION_MODEL: str = "gpt-4o"
 
+    # 阶段二 v3 新增
+    MASTERY_RECOMPUTE_ON_ANSWER: bool = True
+    SNAPSHOT_CRON_HOUR: int = 2
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

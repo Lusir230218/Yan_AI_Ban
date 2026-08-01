@@ -42,6 +42,8 @@ class StudyRecordResponse(BaseModel):
     is_correct: bool | None = None
     duration_seconds: int
     emotion_score: float | None = None
+    error_category: str | None = None
+    source: str
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -122,6 +124,8 @@ class AnswerSubmit(BaseModel):
     answer: str
     duration_seconds: int = 0
     subject: str
+    error_category: str | None = None
+    source: str = "human"
 
 
 class AnswerResult(BaseModel):

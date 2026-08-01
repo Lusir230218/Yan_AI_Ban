@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import logoSvg from '@/assets/logo.svg'
 import {
-  Monitor, Notebook, Document, Clock, User, SwitchButton, Lightning, ChatDotRound
+  Monitor, Notebook, Document, Clock, User, SwitchButton, Lightning, ChatDotRound, DataAnalysis
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -16,6 +16,7 @@ const navItems = [
   { name: 'practice', label: '题库练习', icon: Notebook },
   { name: 'plans', label: '学习计划', icon: Document },
   { name: 'records', label: '学习记录', icon: Clock },
+  { name: 'analytics', label: '学习分析', icon: DataAnalysis },
   { name: 'diagnosis', label: '考研画像', icon: User },
   { name: 'ai-solve', label: 'AI 解答', icon: Lightning },
   { name: 'tutoring', label: 'AI 辅导', icon: ChatDotRound },

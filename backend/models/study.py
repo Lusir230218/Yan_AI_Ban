@@ -34,6 +34,8 @@ class KnowledgePoint(Base):
     exam_frequency: Mapped[int] = mapped_column(Integer, default=1)
     difficulty: Mapped[int] = mapped_column(Integer, default=1)
     prerequisites: Mapped[str | None] = mapped_column(Text, default=None)
+    chapter: Mapped[str | None] = mapped_column(String(100), default=None)
+    section: Mapped[str | None] = mapped_column(String(100), default=None)
 
 
 class StudyRecord(Base):
@@ -47,7 +49,45 @@ class StudyRecord(Base):
     is_correct: Mapped[bool | None] = mapped_column(default=None)
     duration_seconds: Mapped[int] = mapped_column(Integer, default=0)
     emotion_score: Mapped[float | None] = mapped_column(Float, default=None)
+    error_category: Mapped[str | None] = mapped_column(String(64), default=None)
+    source: Mapped[str] = mapped_column(String(10), default="human")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class UserKpMastery(Base):
+    __tablename__ = "user_kp_mastery"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    kp_id: Mapped[int] = mapped_column(ForeignKey("knowledge_points.id", ondelete="CASCADE"), primary_key=True)
+    correct_count: Mapped[int] = mapped_column(Integer, default=0)
+    total_count: Mapped[int] = mapped_column(Integer, default=0)
+    score: Mapped[float] = mapped_column(Float, default=0.5)
+    last_reviewed: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    review_count: Mapped[int] = mapped_column(Integer, default=0)
+    ease_factor: Mapped[float] = mapped_column(Float, default=2.5)
+    source_primary: Mapped[str] = mapped_column(String(10), default="human")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class UserKpWeak(Base):
+    __tablename__ = "user_kp_weak"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    kp_id: Mapped[int] = mapped_column(ForeignKey("knowledge_points.id", ondelete="CASCADE"), primary_key=True)
+    error_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_error_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MasterySnapshot(Base):
+    __tablename__ = "mastery_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    kp_id: Mapped[int] = mapped_column(ForeignKey("knowledge_points.id"), index=True)
+    subject: Mapped[str] = mapped_column(String(50))
+    score: Mapped[float] = mapped_column(Float)
+    delta: Mapped[float | None] = mapped_column(Float, default=None)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
 class QuestionGroup(Base):

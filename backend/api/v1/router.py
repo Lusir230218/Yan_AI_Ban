@@ -1,6 +1,16 @@
 from fastapi import APIRouter
 
-from api.v1 import auth, users, study, questions, ai_solve, evaluation, encourager, supervisor
+from api.v1 import (
+    ai_solve,
+    analytics,
+    auth,
+    encourager,
+    evaluation,
+    questions,
+    study,
+    supervisor,
+    users,
+)
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(auth.router, prefix="/auth", tags=["认证"])
@@ -11,3 +21,4 @@ router.include_router(ai_solve.router, prefix="", tags=["AI 解答"])
 router.include_router(evaluation.router, prefix="", tags=["评估"])
 router.include_router(encourager.router, prefix="", tags=["鼓励"])
 router.include_router(supervisor.router, prefix="", tags=["对话"])
+router.include_router(analytics.router, prefix="/analytics", tags=["学习分析"])

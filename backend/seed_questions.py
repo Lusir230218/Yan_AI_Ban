@@ -200,6 +200,18 @@ async def main():
                 parent_code = kp["code"].rsplit("-", 1)[0]
                 parent_id = kp_by_code.get(parent_code)
 
+            # v3 补 chapter / section（level=1: NULL; level=2: 自身 name; level=3: chapter=父名, section=自身名）
+            chapter = kp.get("chapter")
+            section = kp.get("section")
+            if chapter is None and kp["level"] == 2:
+                chapter = kp["name"]
+            if kp["level"] == 3 and parent_id is not None:
+                if chapter is None:
+                    parent = await session.get(KnowledgePoint, parent_id)
+                    chapter = parent.name if parent else None
+                if section is None:
+                    section = kp["name"]
+
             item = KnowledgePoint(
                 code=kp["code"],
                 name=kp["name"],
@@ -208,6 +220,8 @@ async def main():
                 level=kp["level"],
                 sort_order=kp["sort_order"],
                 applicable_variants=kp.get("applicable_variants"),
+                chapter=chapter,
+                section=section,
             )
             session.add(item)
             await session.flush()

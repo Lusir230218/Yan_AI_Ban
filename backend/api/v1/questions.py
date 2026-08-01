@@ -1,21 +1,32 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import case, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from core.security import get_current_user
+from config import settings
 from core.database import get_db
+from core.security import get_current_user
+from models.mistake import MistakeCategory, MistakeOccursIn, UserMistake
+from models.study import (
+    KnowledgePoint,
+    Question,
+    QuestionGroup,
+    StudyRecord,
+    UserKpMastery,
+    UserKpWeak,
+)
 from models.user import User
-from models.study import Question, StudyRecord, KnowledgePoint, QuestionGroup
 from schemas.study import (
-    QuestionCreate,
-    QuestionResponse,
+    AnswerResult,
+    AnswerSubmit,
     KnowledgePointResponse,
     KnowledgePointTree,
-    AnswerSubmit,
-    AnswerResult,
+    QuestionCreate,
+    QuestionResponse,
     StudyRecordResponse,
 )
+from services.mastery_calc import compute_score
 
 router = APIRouter()
 
@@ -160,16 +171,118 @@ async def submit_answer(
     user_ans = body.answer.strip().upper().replace(" ", "")
     correct_ans = question.correct_answer.strip().upper().replace(" ", "")
     is_correct = user_ans == correct_ans
+    kp_id = question.knowledge_point_id
+    user_id = current_user.id
+    source = body.source or "human"
+    error_category = (body.error_category or "").strip()[:64] or None
 
+    # 1. 写 study_records（真值源）
     record = StudyRecord(
-        user_id=current_user.id,
+        user_id=user_id,
         subject=body.subject,
-        knowledge_point_id=question.knowledge_point_id,
+        knowledge_point_id=kp_id,
         question_id=question.id,
         is_correct=is_correct,
         duration_seconds=body.duration_seconds,
+        error_category=error_category,
+        source=source,
     )
     db.add(record)
+    await db.flush()
+
+    if kp_id is not None:
+        # 2. UPSERT user_kp_mastery
+        await db.execute(
+            pg_insert(UserKpMastery).values(
+                user_id=user_id,
+                kp_id=kp_id,
+                correct_count=1 if is_correct else 0,
+                total_count=1,
+                last_reviewed=record.created_at,
+                review_count=1,
+                source_primary=source,
+            ).on_conflict_do_update(
+                index_elements=["user_id", "kp_id"],
+                set_={
+                    "correct_count": UserKpMastery.correct_count + (1 if is_correct else 0),
+                    "total_count": UserKpMastery.total_count + 1,
+                    "last_reviewed": record.created_at,
+                    "review_count": UserKpMastery.review_count + 1,
+                    # human 一旦置位就保留
+                    "source_primary": case(
+                        (UserKpMastery.source_primary == "human", "human"),
+                        else_=source,
+                    ),
+                },
+            )
+        )
+
+        # 3. 答错时 UPSERT user_kp_weak
+        if not is_correct:
+            await db.execute(
+                pg_insert(UserKpWeak).values(
+                    user_id=user_id,
+                    kp_id=kp_id,
+                    error_count=1,
+                    last_error_at=record.created_at,
+                ).on_conflict_do_update(
+                    index_elements=["user_id", "kp_id"],
+                    set_={
+                        "error_count": UserKpWeak.error_count + 1,
+                        "last_error_at": record.created_at,
+                    },
+                )
+            )
+
+        # 4. 错因 upsert（仅当答错且 error_category 非空）
+        if not is_correct and error_category:
+            # 4a) 错因字典
+            await db.execute(
+                pg_insert(MistakeCategory)
+                .values(name=error_category)
+                .on_conflict_do_nothing()
+            )
+            # 4b) 用户错因累计
+            await db.execute(
+                pg_insert(UserMistake).values(
+                    user_id=user_id,
+                    mistake_name=error_category,
+                    times=1,
+                    first_at=record.created_at,
+                    last_at=record.created_at,
+                ).on_conflict_do_update(
+                    index_elements=["user_id", "mistake_name"],
+                    set_={
+                        "times": UserMistake.times + 1,
+                        "last_at": record.created_at,
+                    },
+                )
+            )
+            # 4c) 错因→KP 关联
+            await db.execute(
+                pg_insert(MistakeOccursIn).values(
+                    mistake_name=error_category,
+                    kp_id=kp_id,
+                    count=1,
+                    last_at=record.created_at,
+                ).on_conflict_do_update(
+                    index_elements=["mistake_name", "kp_id"],
+                    set_={
+                        "count": MistakeOccursIn.count + 1,
+                        "last_at": record.created_at,
+                    },
+                )
+            )
+
+        # 5. score 重算
+        if settings.MASTERY_RECOMPUTE_ON_ANSWER:
+            score = await compute_score(db, user_id, kp_id)
+            await db.execute(
+                UserKpMastery.__table__.update()
+                .where(UserKpMastery.user_id == user_id, UserKpMastery.kp_id == kp_id)
+                .values(score=score)
+            )
+
     await db.commit()
     await db.refresh(record)
 
