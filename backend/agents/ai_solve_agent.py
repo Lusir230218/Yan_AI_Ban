@@ -31,6 +31,7 @@ from config import settings
 from llm.gateway import llm_chat, llm_vision_chat
 from models.study import KnowledgePoint, Question, StudyRecord
 from models.tutor import TutorSession
+from services.user_state import record_user_state
 
 logger = logging.getLogger("ai_solve_agent")
 logger.setLevel(logging.DEBUG)
@@ -624,7 +625,7 @@ async def knowledge_matcher(state: AiSolveState) -> dict:
 
 
 async def save_result(state: AiSolveState) -> dict:
-    """将题目保存到 questions 表 + 创建 StudyRecord"""
+    """将题目保存到 questions 表 + 调用 record_user_state 写用户状态（4 表 UPSERT）"""
     db = state.get("_db_session")
     if not db:
         return {"error": "缺少数据库会话"}
@@ -658,15 +659,21 @@ async def save_result(state: AiSolveState) -> dict:
             db.add(question)
             await db.flush()
 
-        record = StudyRecord(
+        # 从 LLM 输出的 errors 列表取第一条作为 error_category
+        errors = state.get("errors") or []
+        error_category = errors[0].strip()[:64] if errors else None
+
+        record = await record_user_state(
+            db,
             user_id=user_id,
-            subject=state.get("subject", ""),
-            knowledge_point_id=state.get("knowledge_point_id"),
-            question_id=question.id,
+            kp_id=state.get("knowledge_point_id"),
             is_correct=state.get("is_correct"),
+            error_category=error_category,
+            source="ai",  # AI 辅导路径固定标 ai
+            subject=state.get("subject", ""),
+            question_id=question.id,
             duration_seconds=0,
         )
-        db.add(record)
         await db.flush()
 
         return {
