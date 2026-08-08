@@ -68,8 +68,8 @@ async def drop_kg_schema() -> None:
 async def list_constraints_and_indexes() -> dict:
     """调试 / 测试用：SHOW CONSTRAINTS + SHOW INDEXES 返回的 name 列表。"""
     async with kg_session() as s:
-        consts = (await s.run("SHOW CONSTRAINTS")).data()
-        idxs   = (await s.run("SHOW INDEXES")).data()
+        consts = await (await s.run("SHOW CONSTRAINTS")).data()
+        idxs   = await (await s.run("SHOW INDEXES")).data()
     return {
         "constraints": [c.get("name") for c in consts],
         "indexes":     [i.get("name") for i in idxs],
