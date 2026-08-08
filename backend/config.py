@@ -14,10 +14,23 @@ class Settings(BaseSettings):
     NEO4J_USER: str = "neo4j"
     NEO4J_PASSWORD: str = ""
 
+    # 阶段五·2A 知识图谱基座配置
+    KG_ENV: str = "production"           # production | staging | dev
+    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    EMBEDDING_DIM: int = 1536
+    INITIAL_CONFIDENCE: float = 0.5
+    CROSS_SUBJECT_INITIAL_CONFIDENCE: float = 0.4
+
     LLM_API_KEY: str = ""
     LLM_BASE_URL: str = "https://api.openai-proxy.org/v1"
     LLM_MODEL: str = "qwen3.5-flash"
     LLM_VISION_MODEL: str = "gpt-4o"
+
+    # 阶段五·2B 独立 LLM（Anthropic 兼容协议：MiniMax）
+    # 真实 token 放 .env，不要 commit
+    STAGE5_LLM_API_KEY: str = ""           # 对应 ANTHROPIC_AUTH_TOKEN
+    STAGE5_LLM_BASE_URL: str = ""          # 对应 ANTHROPIC_BASE_URL
+    STAGE5_LLM_MODEL: str = ""             # 对应 ANTHROPIC_DEFAULT_SONNET_MODEL
 
     # 阶段二 v3 新增
     MASTERY_RECOMPUTE_ON_ANSWER: bool = True

@@ -56,8 +56,18 @@ async def lifespan(app: FastAPI):
         await _ensure_columns(conn)
     cron_task = asyncio.create_task(snapshot_cron_loop(hour=settings.SNAPSHOT_CRON_HOUR))
     logger.info("snapshot_cron started")
+    # 阶段五·2A: 启动 Neo4j + apply kg schema (仅 dev/staging)
+    if settings.KG_ENV != "production":
+        from kg.neo4j_client import get_kg_driver
+        from kg.schema import init_kg_schema
+        await get_kg_driver()
+        await init_kg_schema(embedding_dim=settings.EMBEDDING_DIM)
+        logger.info("[kg] schema applied (KG_ENV=%s)", settings.KG_ENV)
     yield
     cron_task.cancel()
+    if settings.KG_ENV != "production":
+        from kg.neo4j_client import close_kg_driver
+        await close_kg_driver()
 
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
