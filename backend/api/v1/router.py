@@ -6,6 +6,8 @@ from api.v1 import (
     auth,
     encourager,
     evaluation,
+    feedback,
+    knowledge_graph,
     questions,
     study,
     supervisor,
@@ -22,3 +24,7 @@ router.include_router(evaluation.router, prefix="", tags=["评估"])
 router.include_router(encourager.router, prefix="", tags=["鼓励"])
 router.include_router(supervisor.router, prefix="", tags=["对话"])
 router.include_router(analytics.router, prefix="/analytics", tags=["学习分析"])
+# 阶段五·2C
+# knowledge_graph.router 内部已声明 prefix="/kg"，父级不再加，避免 /api/v1/kg/kg/...
+router.include_router(knowledge_graph.router)
+router.include_router(feedback.router, tags=["用户反馈"])

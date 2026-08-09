@@ -17,8 +17,14 @@ def _get_bolt_url() -> str:
 
 
 def _database_name() -> str:
-    """根据 KG_ENV 切换 database 名（dev/staging/prod 物理隔离）。"""
-    env = os.getenv("KG_ENV", "production").lower()
+    """根据 KG_ENV 切换 database 名（dev/staging/prod 物理隔离）。
+
+    注意：读 `settings.KG_ENV` 而不是 `os.getenv("KG_ENV")` —
+    Pydantic BaseSettings 把 .env 加载到 `settings` 对象，但不写回 os.environ，
+    所以直接 os.getenv() 会拿到 None 然后 fallback 到 "production"。
+    """
+    from config import settings
+    env = (settings.KG_ENV or "production").lower()
     return {
         "production": "neo4j",
         "staging":    "kg-staging",
@@ -59,13 +65,22 @@ async def kg_lifespan() -> AsyncIterator[None]:
 
 
 @asynccontextmanager
-async def kg_session() -> AsyncIterator[AsyncSession]:
-    """所有 Neo4j 操作统一入口。database 由 KG_ENV 决定。
+async def kg_session(database: str | None = None) -> AsyncIterator[AsyncSession]:
+    """所有 Neo4j 操作统一入口。database 默认由 KG_ENV 决定。
 
     用法：
+        # 默认：走 KG_ENV 切换（2B/2C 用 kg-dev）
         async with kg_session() as s:
-            await s.run("MATCH (c:Concept {id: $id}) RETURN c", id=cid)
+            await s.run(...)
+
+        # 显式覆盖：planner_agent 等老代码强制走默认 neo4j 库
+        async with kg_session(database="neo4j") as s:
+            await s.run(...)
+
+    Args:
+        database: 显式指定 database 名。None 时用 `_database_name()`（KG_ENV 决定）。
     """
     driver = await get_kg_driver()
-    async with driver.session(database=_database_name()) as session:
+    db_name = database if database is not None else _database_name()
+    async with driver.session(database=db_name) as session:
         yield session

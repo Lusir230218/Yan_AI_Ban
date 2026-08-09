@@ -10,6 +10,9 @@ from config import settings
 from core.database import engine, Base
 from api.v1.router import router as v1_router
 from jobs.snapshot_mastery import snapshot_cron_loop
+# 阶段五·2C: 让 Base.metadata.create_all 知道 feedback 表存在
+from models import feedback  # noqa: F401  (side-effect import)
+from models.feedback import FeedbackKGAnswer, GapQuestion  # noqa: F401
 
 logger = logging.getLogger("main")
 

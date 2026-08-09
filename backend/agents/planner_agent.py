@@ -41,12 +41,16 @@ class PlannerOutput(TypedDict):
 # ---------- Nodes ----------
 
 async def gather_kg_context(state: PlannerState) -> dict:
-    """从 Neo4j 知识图谱获取考研大纲结构"""
-    from kg.neo4j_client import get_kg_driver
+    """从 Neo4j 知识图谱获取考研大纲结构
 
-    driver = await get_kg_driver()
+    注意：planner 用的是阶段五·2A 的旧本体（Subject/Chapter/HAS_CHAPTER），
+    数据放在默认 `neo4j` 库。显式传 `database="neo4j"` 跳过 KG_ENV 切换，
+    避免跟 2B/2C 的 kg-dev 库混淆。
+    """
+    from kg.neo4j_client import kg_session
+
     context = []
-    async with driver.session() as session:
+    async with kg_session(database="neo4j") as session:
         result = await session.run(
             "MATCH (s:Subject) ORDER BY s.name RETURN s.name AS subject"
         )

@@ -33,7 +33,7 @@ async def enqueue_embedding_job(batch_size: int = 50) -> int:
 
     for r in rows:
         try:
-            emb = await _embed_text(_compose_text(r))
+            emb = await embed_text(_compose_text(r))
             await _write_embedding(r["id"], emb)
         except Exception as e:
             # 单点失败不影响其他节点
@@ -51,8 +51,10 @@ def _compose_text(node: dict[str, Any]) -> str:
     return " — ".join(parts)
 
 
-async def _embed_text(text: str) -> list[float]:
-    """调 OpenAI 兼容 embedding API（复用阶段一 proxy）。"""
+async def embed_text(text: str) -> list[float]:
+    """调 OpenAI 兼容 embedding API（复用阶段一 proxy）。public wrapper
+    让 graph_rag 等模块可以合法引用。
+    """
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
             f"{settings.LLM_BASE_URL}/embeddings",
@@ -61,6 +63,10 @@ async def _embed_text(text: str) -> list[float]:
         )
         resp.raise_for_status()
         return resp.json()["data"][0]["embedding"]
+
+
+# 私有别名 — 保留以便不破坏 extract.py 等历史调用方
+_embed_text = embed_text
 
 
 async def _write_embedding(concept_id: str, embedding: list[float]) -> None:

@@ -52,3 +52,12 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
     return user
+
+
+async def require_admin(current_user: User = Depends(get_current_user)) -> User:
+    """Admin 端点的 role check。
+
+    当前 User 模型没有 is_admin 字段，临时放行所有已登录用户。
+    (2D): 在 users 表加 is_admin BOOL DEFAULT FALSE，再加真实校验。
+    """
+    return current_user
