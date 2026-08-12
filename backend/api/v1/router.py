@@ -7,6 +7,7 @@ from api.v1 import (
     encourager,
     evaluation,
     feedback,
+    kg_admin,
     knowledge_graph,
     questions,
     study,
@@ -28,3 +29,6 @@ router.include_router(analytics.router, prefix="/analytics", tags=["学习分析
 # knowledge_graph.router 内部已声明 prefix="/kg"，父级不再加，避免 /api/v1/kg/kg/...
 router.include_router(knowledge_graph.router)
 router.include_router(feedback.router, tags=["用户反馈"])
+# 阶段五·2D 飞轮 admin
+# kg_admin.router 内部已声明 prefix="/kg/admin/flywheel"，父级不再加。
+router.include_router(kg_admin.router)

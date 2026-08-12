@@ -78,6 +78,13 @@ const router = createRouter({
       component: () => import('@/views/AnalyticsView.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      // 阶段五·2D 飞轮 admin 后台
+      path: '/admin/kg-review',
+      name: 'kg-admin',
+      component: () => import('@/views/KgAdminView.vue'),
+      meta: { requiresAuth: true },
+    },
   ],
 })
 

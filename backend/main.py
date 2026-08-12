@@ -52,6 +52,16 @@ async def _ensure_columns(conn):
     ))
 
 
+def _mount_metrics(app: FastAPI) -> None:
+    """挂载 Prometheus /metrics 端点。依赖缺失时静默跳过。"""
+    try:
+        from prometheus_client import make_asgi_app
+        app.mount("/metrics", make_asgi_app())
+        logger.info("[metrics] /metrics endpoint mounted")
+    except Exception as e:
+        logger.warning("[metrics] /metrics 挂载失败（prometheus_client 未装？）: %s", e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
@@ -66,8 +76,19 @@ async def lifespan(app: FastAPI):
         await get_kg_driver()
         await init_kg_schema(embedding_dim=settings.EMBEDDING_DIM)
         logger.info("[kg] schema applied (KG_ENV=%s)", settings.KG_ENV)
+    # 阶段五·2D 飞轮：启动 APScheduler（依赖缺失时静默跳过）
+    try:
+        from kg.scheduler import start_scheduler, stop_scheduler
+        start_scheduler()
+    except Exception as e:
+        logger.warning("[flywheel] scheduler 启动失败: %s", e)
     yield
     cron_task.cancel()
+    try:
+        from kg.scheduler import stop_scheduler
+        stop_scheduler()
+    except Exception:
+        pass
     if settings.KG_ENV != "production":
         from kg.neo4j_client import close_kg_driver
         await close_kg_driver()
@@ -84,6 +105,7 @@ app.add_middleware(
 )
 
 app.include_router(v1_router)
+_mount_metrics(app)
 
 
 @app.get("/")

@@ -54,6 +54,6 @@ async def _fetch_pg_kp_id_map() -> dict[str, int]:
 
     async with async_session() as db:
         rows = (await db.execute(text(
-            "SELECT id, code FROM knowledge_points WHERE deleted_at IS NULL"
+            "SELECT id, code FROM knowledge_points"
         ))).all()
     return {r.code: r.id for r in rows}

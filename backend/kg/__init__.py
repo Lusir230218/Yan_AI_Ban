@@ -33,6 +33,28 @@ from kg.embedding_pipeline import (
 from kg.merge_dups import merge_duplicates
 from kg.syllabus_loader import load_syllabus
 from kg.extract import cli as extract_cli, run as extract_run
+# 阶段五·2D 飞轮
+from kg.flywheel_ema import (
+    EMAConfig, batch_update, learning_rate, time_decay, update,
+)
+from kg.flywheel_signals import (
+    fetch_gap_questions, fetch_total_user_count,
+    signals_cross_source, signals_explicit_feedback,
+    signals_implicit_feedback,
+)
+from kg.dispute import (
+    detect_cycles, detect_low_confidence,
+    export_to_review_queue, mark_disputed,
+)
+from kg.admin_concepts import (
+    archive_concept, merge_concepts, restore_concept,
+)
+from kg.flywheel import weekly_flywheel_update
+from kg.metrics import (
+    concepts_confidence_avg, disputes_exported_total,
+    flywheel_runs_total, signals_total,
+)
+from kg.scheduler import start_scheduler, stop_scheduler
 
 __all__ = [
     # ontology
@@ -59,4 +81,15 @@ __all__ = [
     # extract orchestration
     "merge_duplicates", "load_syllabus",
     "extract_cli", "extract_run",
+    # 阶段五·2D 飞轮
+    "EMAConfig", "update", "batch_update", "learning_rate", "time_decay",
+    "signals_explicit_feedback", "signals_implicit_feedback",
+    "signals_cross_source", "fetch_total_user_count", "fetch_gap_questions",
+    "detect_cycles", "detect_low_confidence",
+    "mark_disputed", "export_to_review_queue",
+    "merge_concepts", "archive_concept", "restore_concept",
+    "weekly_flywheel_update",
+    "flywheel_runs_total", "signals_total",
+    "disputes_exported_total", "concepts_confidence_avg",
+    "start_scheduler", "stop_scheduler",
 ]
