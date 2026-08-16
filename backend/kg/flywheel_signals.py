@@ -74,11 +74,11 @@ async def signals_implicit_feedback(since: datetime) -> list[tuple]:
                 FROM feedback_kg_answer
                 WHERE created_at > :since
             )
-            SELECT rf.cited_concepts, rq.is_correct, rq.answered_at
+            SELECT rf.cited_concepts, rq.is_correct, rq.created_at
             FROM recent_fb rf
             JOIN study_records rq
               ON rf.user_id = rq.user_id
-             AND rq.answered_at BETWEEN rf.created_at
+             AND rq.created_at BETWEEN rf.created_at
                  AND rf.created_at + INTERVAL '5 minutes'
         """), {"since": since})).all()
 
@@ -90,7 +90,7 @@ async def signals_implicit_feedback(since: datetime) -> list[tuple]:
                 cid = cid.get("id")
             if not cid:
                 continue
-            out.append(("implicit", cid, signal, r.answered_at))
+            out.append(("implicit", cid, signal, r.created_at))
     return out
 
 
@@ -108,7 +108,7 @@ async def signals_cross_source(since: datetime) -> list[tuple]:
         rows = await (await s.run("""
             MATCH ()-[r]->()
             WHERE r.updated_at > $since AND coalesce(r.disputed, false) = false
-            RETURN id(r) AS rel_id, r.confidence AS conf, r.updated_at AS updated
+            RETURN elementId(r) AS rel_id, r.confidence AS conf, r.updated_at AS updated
         """, since=since)).data()
     return [
         ("cross_source", str(r["rel_id"]), float(r["conf"]), r["updated"])

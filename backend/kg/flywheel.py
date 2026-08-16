@@ -110,7 +110,11 @@ async def _calibrate_by_signals(user_count: int) -> int:
             if not row:
                 continue
             old = float(row["old_conf"]) if row["old_conf"] is not None else 0.5
-            last = row["last_updated"]
+            # neo4j 驱动返回 neo4j.time.DateTime，不能和 Python datetime 直接相减；
+            # .to_native() 转成原生 datetime；如果带 tzinfo 则抹平（now 是 naive UTC）
+            last = row["last_updated"].to_native()
+            if last.tzinfo is not None:
+                last = last.replace(tzinfo=None)
             days_since = max((now - last).total_seconds() / 86400.0, 0.0)
             # batch_update 内部已经按时间排序；传入 user_count 控制学习率
             new = batch_update(old, sigs, now, user_count, cfg)
@@ -144,7 +148,7 @@ async def _handle_low_conf() -> int:
     rows = await detect_low_confidence()
     if not rows:
         return 0
-    rel_ids = [int(r["rel_id"]) for r in rows]
+    rel_ids = [r["rel_id"] for r in rows]
     return await mark_disputed(rel_ids, reason="low_conf")
 
 

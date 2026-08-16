@@ -45,17 +45,17 @@ async def detect_cycles() -> list[dict]:
     return rows
 
 
-async def _mark_cycle_rel_ids(cycles: list[dict]) -> list[int]:
-    """对每对 cycle 取两条 rel 的 Neo4j id。"""
+async def _mark_cycle_rel_ids(cycles: list[dict]) -> list[str]:
+    """对每对 cycle 取两条 rel 的 Neo4j elementId。"""
     if not cycles:
         return []
-    out: list[int] = []
+    out: list[str] = []
     async with kg_session() as s:
         for c in cycles:
             row = await (await s.run("""
                 MATCH (a:Concept {id:$a})-[r1:PREREQUISITE_OF]->(b:Concept {id:$b})
                 MATCH (b)-[r2:PREREQUISITE_OF]->(a)
-                RETURN id(r1) AS id1, id(r2) AS id2
+                RETURN elementId(r1) AS id1, elementId(r2) AS id2
             """, a=c["a_id"], b=c["b_id"])).single()
             if row:
                 out.append(row["id1"])
@@ -78,7 +78,7 @@ async def detect_low_confidence(
             WHERE r.confidence < $thr
               AND r.updated_at < $cutoff
               AND coalesce(r.disputed, false) = false
-            RETURN id(r) AS rel_id, r.confidence AS conf,
+            RETURN elementId(r) AS rel_id, r.confidence AS conf,
                    startNode(r).id AS from_id,
                    coalesce(startNode(r).name, '?') AS from_name,
                    type(r) AS rel,
@@ -91,14 +91,14 @@ async def detect_low_confidence(
 # ───────────────────────── 标记 disputed ─────────────────────────
 
 
-async def mark_disputed(rel_ids: list[int], reason: str) -> int:
+async def mark_disputed(rel_ids: list[str], reason: str) -> int:
     """在 Neo4j 上把关系打 disputed 标记 + 记录原因。"""
     if not rel_ids:
         return 0
     async with kg_session() as s:
         await s.run("""
             MATCH ()-[r]->()
-            WHERE id(r) IN $ids
+            WHERE elementId(r) IN $ids
             SET r.disputed = true,
                 r.disputed_at = datetime(),
                 r.disputed_reason = $reason
